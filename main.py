@@ -14,7 +14,6 @@ def printmenu():
         else:
             print("please input 1 or 2")
 
-
 def signin(cursor):
     input_username = input("아이디: ")
     input_password = input('비밀번호: ')
