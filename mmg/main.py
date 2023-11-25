@@ -313,7 +313,7 @@ def check_waiting():
 
 
 def write_review():
-    # TODO - 사장이 대기열에서 pop하면 리뷰권한습득 -> 리뷰작성가능. 새로운 relation?
+    # TODO - 사장이 대기열에서 pop하면 리뷰권한습득 -> 리뷰작성가능. 새로운 Relation?
     pass
 
 def user_menu():
