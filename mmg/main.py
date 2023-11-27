@@ -25,8 +25,8 @@ def print_welcome_menu():
     print("---------------------\n"
           "Welcome to 뭐먹지?\n"
           "Choose Menu\n"
-          "1. login\n"
-          "2. sign in\n"
+          "1. sign in\n"
+          "2. sign up\n"
           "3. Quit.\n")
     return input("메뉴 선택: ")
 
@@ -203,7 +203,7 @@ def change_user():
         elif user_input == "2":
             change_pw()
         elif user_input == "3":
-            print("Bye")
+            print("회원 정보 변경을 종료합니다.")
             break
         else:
             print("Invalid Option! 1, 2, 3 중 선택해주세요.")
@@ -214,10 +214,14 @@ def find_restaurant():
     cursor = con.cursor()
     # TODO - 조회 순서 추가(평점순, 대기시간순...)
     print("가게 조회 메뉴입니다.\n")
-    cursor.execute("select * from restaurants")
+    cursor.execute("select * from restaurants where open_status = true")
     restaurants = cursor.fetchall()
 
     print("가게 목록:")
+    if not restaurants:
+        print("텅")
+        return
+
     for restaurant in restaurants:
         print(f"가게번호: {restaurant[0]}, 가게이름: {restaurant[2]}, 주소: {restaurant[3]}, 평점: {restaurant[4]}")
 
@@ -325,7 +329,7 @@ def user_menu():
     """
     while 1:
         print("----------------------------\n"
-              "유저가 사용할 수 있는 메뉴입니다.\n"
+              "고객이 사용할 수 있는 메뉴입니다.\n"
               f"hello user - {g_current_user.user_name}\n"
               "1. 회원 정보 변경\n"
               "2. 가게 조회\n"
@@ -347,16 +351,146 @@ def user_menu():
         else:
             print("Invalid Option!\n 1, 2, 3, 4 중 선택해주세요.")
 
+def view_myrestaurant():
+    global con
+    cursor = con.cursor()
+    print("----내 가게 목록----")
+    # 현재 사용자의 가게 목록 조회
+    cursor.execute("select * from restaurants where owner_id = %s", (g_current_user.user_id,))
+    my_restaurants = cursor.fetchall()
+
+    if not my_restaurants:
+        print("내 가게가 없습니다.")
+        return False
+    else:
+        for restaurant in my_restaurants:
+            status = "Open" if restaurant[5] else "Closed"
+            print(f"가게 ID: {restaurant[0]}, 가게 이름: {restaurant[2]}, 주소: {restaurant[3]}, 평점: {restaurant[4]}, 상태: {status}")
+    return True
+
+def register_restaurant():
+    global con
+    cursor = con.cursor()
+    print("가게 등록 기능이 선택되었습니다.")
+    # 가게 정보 입력
+    restaurant_name = input("가게 이름: ")
+    restaurant_address = input("가게 주소: ")
+
+    # 가게 등록 쿼리 실행
+    cursor.execute("insert into restaurants (owner_id, restaurant_name, restaurant_address, open_status) values (%s, %s, %s, %s) returning restaurant_id", (g_current_user.user_id, restaurant_name, restaurant_address, False))
+    con.commit()
+    new_restaurant_id = cursor.fetchone()[0]
+
+    print(f"가게 등록이 완료되었습니다. (가게 ID: {new_restaurant_id})")
+
+
+def delete_restaurant():
+    global con
+    cursor = con.cursor()
+    print("가게 삭제 기능이 선택되었습니다.")
+    if not view_myrestaurant():
+        return print("가게 삭제 기능을 종료합니다.")
+    # 가게 ID 입력
+    restaurant_id = int(input("삭제할 가게의 ID: "))
+
+    # 가게 삭제 쿼리 실행
+    cursor.execute("delete from restaurants where restaurant_id = %s and owner_id = %s", (restaurant_id, g_current_user.user_id))
+    con.commit()
+
+    if cursor.rowcount > 0:
+        print("가게 삭제가 완료되었습니다.")
+        return True
+    else:
+        print("해당 가게를 찾을 수 없거나 삭제 권한이 없습니다.")
+
+
+def register_or_delete_restaurant():
+    while True:
+        print("가게 등록 및 삭제 메뉴입니다.\n"
+              "1. 가게 등록\n"
+              "2. 가게 삭제\n"
+              "3. 종료\n")
+
+        user_input = input("메뉴 선택: ")
+        if user_input == "1":
+            register_restaurant()
+            break
+        elif user_input == "2":
+            if delete_restaurant(): break
+        elif user_input == "3":
+            print("가게 등록 및 삭제를 종료합니다.")
+            break
+        else:
+            print("Invalid Option! 1, 2, 3 중 선택해주세요.")
+
+
+def change_status_myrestaurant():
+    global con
+    cursor = con.cursor()
+    while True:
+        print("내 가게 상태 변경 메뉴입니다.\n"
+              "1. 가게 상태 변경\n"
+              "2. 종료\n")
+
+        user_input = input("메뉴 선택: ")
+        if user_input == "1":
+            if not view_myrestaurant():
+                return print("내 가게 상태 변경 기능을 종료합니다.")
+            # 가게 ID 입력
+            restaurant_id = input("변경할 가게의 ID: ")
+            # 가게 상태 변경 쿼리 실행
+            cursor.execute("update restaurants set open_status = not open_status where restaurant_id = %s and owner_id = %s", (restaurant_id, g_current_user.user_id))
+            con.commit()
+
+            if cursor.rowcount > 0:
+                return print("가게 상태 변경이 완료되었습니다.")
+            else:
+                print("해당 가게를 찾을 수 없거나 변경 권한이 없습니다.")
+        elif user_input == "2":
+            return print("내 가게 상태 변경 기능을 종료합니다.")
+        else:
+            print("Invalid Option! 1, 2 중 선택해주세요.")
+
+
+def manage_waiting():
+    # TODO -> 1.가게 선택 2.선택된 가게의 (1)대기열 조회 (2) 손님 입장
+    print("내 가게 대기열 관리 메뉴입니다.\n"
+          "1. 내 가게 상태 변경\n"
+          "2. 종료\n")
+
 
 def owner_menu():
     """
     사장이 사용할 수 있는 메뉴 출력
     """
-    #TODO - 사장의 메뉴 -> 가게 등록, 삭제, 시작, 마감 / 가게에 대한 대기열 관리 / 리뷰 신고
-    print("----------------------------\n"
-          "사장이 사용할 수 있는 메뉴입니다.\n"
-          f"hello owner {g_current_user.user_name}\n")
+    while True:
+        print("----------------------------\n"
+              "사장이 사용할 수 있는 메뉴입니다.\n"
+              f"hello owner - {g_current_user.user_name}\n"
+              "1. 내 가게 조회\n"
+              "2. 내 가게 상태 변경\n"
+              "3. 대기열 관리\n"
+              "4. 리뷰 조회\n"
+              "5. 가게 등록 및 삭제\n"
+              "6. 종료\n")
 
+        user_input = input("메뉴 선택: ")
+        if user_input == "1":
+            view_myrestaurant()
+        elif user_input == "2":
+            change_status_myrestaurant()
+        elif user_input == "3":
+            manage_waiting()
+        elif user_input == "4":
+            #view_review()
+            pass
+        elif user_input == "5":
+            register_or_delete_restaurant()
+        elif user_input == "6":
+            print("Bye")
+            break
+        else:
+            print("Invalid Option! 1 ~ 6 중 선택해주세요.")
 
 def admin_menu():
     """
@@ -366,7 +500,7 @@ def admin_menu():
     #TODO - 관리자의 메뉴 -> 악성 리뷰 삭제 / 고객 및 사장 임시정지
     print("----------------------------\n"
           "관리자가 사용할 수 있는 메뉴입니다.\n"
-          f"hello admin {g_current_user.user_name}\n")
+          f"hello admin - {g_current_user.user_name}\n")
 
 if __name__ == "__main__":
     while 1:
