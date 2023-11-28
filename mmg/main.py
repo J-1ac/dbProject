@@ -1,6 +1,7 @@
 import psycopg2
 import re
 
+# TODO -> 로그아웃 기능 추가?
 con = psycopg2.connect(
         database='mmg',
         user='sjlee',
@@ -70,6 +71,7 @@ def sign_up():
     계정 중복 여부 확인
     암호 조건 충족 여부 확인 후 회원 가입 진행
     """
+    # TODO - 비밀번호 해쉬화
     global con
     cursor = con.cursor()
     print("----회원가입----")
@@ -206,7 +208,7 @@ def change_user():
             print("회원 정보 변경을 종료합니다.")
             break
         else:
-            print("Invalid Option! 1, 2, 3 중 선택해주세요.")
+            print("Invalid Option!\n 1, 2, 3 중 선택해주세요.")
 
 
 def find_restaurant():
@@ -214,7 +216,7 @@ def find_restaurant():
     cursor = con.cursor()
     # TODO - 조회 순서 추가(평점순, 대기시간순...)
     print("가게 조회 메뉴입니다.\n")
-    cursor.execute("select * from restaurants where open_status = true")
+    cursor.execute("select * from restaurants where open_status = true order by restaurant_id")
     restaurants = cursor.fetchall()
 
     print("가게 목록:")
@@ -235,6 +237,13 @@ def find_restaurant():
     # 선택한 가게의 상세 정보 조회 및 출력
     cursor.execute("select * from restaurants where restaurant_id = %s", (selected_restaurant_id,))
     selected_restaurant = cursor.fetchone()
+
+    if not selected_restaurant:
+        return print("존재하지 않는 가게입니다.")
+
+    if selected_restaurant[5] == False:
+        return print("닫혀있는 가게입니다.")
+
     cursor.execute("select count(*) from waitings where restaurant_id = %s", (selected_restaurant_id,))
     waiting_count = cursor.fetchone()[0]
 
@@ -311,45 +320,69 @@ def check_waiting():
                 leave_waiting_queue(restaurant_id, priority)
                 break
             else:
-                print("Invalid Option!. 다시 선택해주세요.")
+                print("Invalid Option!\n 다시 선택해주세요.")
     else:
         print("현재 대기 중인 가게가 없습니다.")
 
 
 def write_review():
-    # TODO - 사장이 대기열에서 pop하면 리뷰권한습득 -> 리뷰작성가능. 새로운 Relation?
-    pass
+    # TODO
+    global con
+    cursor = con.cursor()
+    # 현재 고객의 작성 가능한 리뷰 목록 가져오기
+    cursor.execute("select re.review_id, r.restaurant_name, r.restaurant_address, r.avg_rating, r.restaurant_id "
+                   "from reviews re "
+                   "join restaurants r on re.restaurant_id = r.restaurant_id "
+                   "where user_id = %s and review_rating is null and review_comment is null",
+                   (g_current_user.user_id,))
+    reviewable_list = cursor.fetchall()
 
-def user_menu():
-    """
-    고객이 사용할 수 있는 메뉴 출력
-    1. 회원 정보 변경 (계정, 암호 변경)
-    2. 가게 조회 (기준에 따른 순위별 조회)
-    3. 내 대기열 조회 (현재 참여중인 대기열 정보)
-    """
-    while 1:
-        print("----------------------------\n"
-              "고객이 사용할 수 있는 메뉴입니다.\n"
-              f"hello user - {g_current_user.user_name}\n"
-              "1. 회원 정보 변경\n"
-              "2. 가게 조회\n"
-              "3. 내 대기열 조회\n"
-              "4. 후기 등록\n"
-              "5. 종료")
-        user_input = input("메뉴 선택: ")
-        if user_input == "1":
-            change_user()
-        elif user_input == "2":
-            find_restaurant()
-        elif user_input == "3":
-            check_waiting()
-        elif user_input == "4":
-            write_review()
-        elif user_input == "5":
-            print("Bye")
+    if not reviewable_list:
+        return print("작성 가능한 리뷰가 없습니다.")
+
+    print("작성 가능한 리뷰 목록:")
+    for review in reviewable_list:
+        print(f"리뷰 ID: {review[0]}, 가게 이름: {review[1]}, 가게 주소: {review[2]}, 평균 평점:{review[3]}")
+
+    # 리뷰 작성할 가게 선택
+    selected_review_id = input("리뷰를 작성할 가게의 리뷰 ID를 입력하세요 (종료: 0): ")
+
+    if selected_review_id == "0":
+        return print("리뷰 작성을 종료합니다.")
+
+    # 선택한 리뷰의 유효성 검사 및 작성
+    selected_review = None
+    for review in reviewable_list:
+        if str(review[0]) == selected_review_id:
+            selected_review = review
             break
-        else:
-            print("Invalid Option!\n 1, 2, 3, 4 중 선택해주세요.")
+
+    if selected_review:
+        rating = input("별점을 입력하세요 (0~5): ")
+        comment = input("코멘트를 입력하세요 (15자 이상): ")
+
+        if not (rating.isdigit() and 0 <= int(rating) <= 5):
+            return print("별점은 0에서 5 사이의 숫자여야 합니다.")
+        if len(comment) < 15:
+            return print("코멘트는 15자 이상이어야 합니다.")
+
+        # 리뷰 작성
+        cursor.execute("update reviews set review_rating = %s, review_comment = %s where review_id = %s",
+                       (rating, comment, selected_review_id))
+        # 해당 가게의 평균 평점 갱신
+        # todo 고려할 부분) 가게의 평균 평점 개신 시점 -> 리뷰 작성시? 가게 조회시?
+        cursor.execute("update restaurants "
+                       "set avg_rating = "
+                            "round("
+                            "(select avg(review_rating) "
+                            "from reviews "
+                            "where restaurant_id = %s and review_rating is not null), 2)"
+                       "where restaurant_id = %s", (selected_review[4], selected_review[4]))
+        con.commit()
+        print("리뷰가 성공적으로 작성되었습니다.")
+    else:
+        print("유효하지 않거나 권한이 없는 리뷰입니다.")
+
 
 def view_myrestaurant():
     global con
@@ -421,7 +454,7 @@ def register_or_delete_restaurant():
             print("가게 등록 및 삭제를 종료합니다.")
             break
         else:
-            print("Invalid Option! 1, 2, 3 중 선택해주세요.")
+            print("Invalid Option!\n 1, 2, 3 중 선택해주세요.")
 
 
 def change_status_myrestaurant():
@@ -431,7 +464,6 @@ def change_status_myrestaurant():
         print("내 가게 상태 변경 메뉴입니다.\n"
               "1. 가게 상태 변경\n"
               "2. 종료\n")
-
         user_input = input("메뉴 선택: ")
         if user_input == "1":
             if not view_myrestaurant():
@@ -449,15 +481,105 @@ def change_status_myrestaurant():
         elif user_input == "2":
             return print("내 가게 상태 변경 기능을 종료합니다.")
         else:
-            print("Invalid Option! 1, 2 중 선택해주세요.")
+            print("Invalid Option!\n 1, 2 중 선택해주세요.")
 
 
 def manage_waiting():
-    # TODO -> 1.가게 선택 2.선택된 가게의 (1)대기열 조회 (2) 손님 입장
-    print("내 가게 대기열 관리 메뉴입니다.\n"
-          "1. 내 가게 상태 변경\n"
-          "2. 종료\n")
+    global con
+    cursor = con.cursor()
+    print("내 가게 대기열 관리 메뉴입니다.")
+    if not view_myrestaurant(): return      # 자신의 가게가 없는 경우 return
+    choosen_restaurant_id = input("선택할 가게의 ID: ")
 
+    cursor.execute("select owner_id from restaurants where restaurant_id = %s", (choosen_restaurant_id,))
+    owner_id = cursor.fetchone()
+
+    # 선택된 가게가 없거나, 현재 사장의 가게가 아닌 경우 return
+    if not owner_id or owner_id[0] != g_current_user.user_id:
+        return print("해당 가게의 권한이 없습니다.")
+
+    while 1:
+        print("현재 대기열 목록: \n")
+        cursor.execute("select * from waitings where restaurant_id = %s order by priority", (choosen_restaurant_id, ))
+        waiting_list = cursor.fetchall()
+        # 대기열이 비어있을 경우 종료
+        if not waiting_list:
+            return print("대기열이 비어있습니다.")
+
+        for waiting in waiting_list:
+            print(f"손님 ID: {waiting[1]}, 우선순위: {waiting[2]}")
+        print("1: 손님 입장\n"
+              "2: 종료\n")
+        user_input = input("메뉴 선택: ")
+        if user_input == "1":
+            # 입장한 손님을 reviews에 추가하는 쿼리
+            cursor.execute("insert into reviews (user_id, restaurant_id) values (%s, %s)", (waiting_list[0][1], choosen_restaurant_id))
+            # 입장한 손님 삭제 쿼리
+            cursor.execute("delete from waitings where restaurant_id = %s and priority = 1", (choosen_restaurant_id,))
+            # 나머지 대기열 내 고객의 priority를 1씩 감소.
+            cursor.execute("update waitings set priority = priority - 1 where restaurant_id = %s", (choosen_restaurant_id,))
+            con.commit()
+            print("손님 입장 처리를 완료하였습니다.")
+        elif user_input == "2":
+            return print("내 가게 대기열 관리 기능을 종료합니다.")
+        else:
+            print("Invalid Option!\n 1, 2 중 선택해주세요.")
+
+def view_review():
+    # TODO -> 신고 기능 추가
+    global con
+    cursor = con.cursor()
+    print("내 가게 리뷰 관리 메뉴입니다.")
+    if not view_myrestaurant(): return  # 자신의 가게가 없는 경우 return
+    choosen_restaurant_id = input("선택할 가게의 ID: ")
+
+    cursor.execute("select owner_id from restaurants where restaurant_id = %s", (choosen_restaurant_id,))
+    owner_id = cursor.fetchone()
+
+    # 선택된 가게가 없거나, 현재 사장의 가게가 아닌 경우 return
+    if not owner_id or owner_id[0] != g_current_user.user_id:
+        return print("해당 가게의 권한이 없습니다.")
+
+    print("리뷰 목록: \n")
+    cursor.execute("select * from reviews where restaurant_id = %s and review_rating is not null and review_comment is not null order by review_id desc", (choosen_restaurant_id,))
+    reviews = cursor.fetchall()
+    # 작성된 리뷰가 없을 경우 종료
+    if not reviews:
+        return print("리뷰가 없습니다.")
+
+    for review in reviews:
+        print(f"평점: {review[3]}, 내용: {review[4]}")
+
+def user_menu():
+    """
+    고객이 사용할 수 있는 메뉴 출력
+    1. 회원 정보 변경 (계정, 암호 변경)
+    2. 가게 조회 (기준에 따른 순위별 조회)
+    3. 내 대기열 조회 (현재 참여중인 대기열 정보)
+    """
+    while 1:
+        print("----------------------------\n"
+              "고객이 사용할 수 있는 메뉴입니다.\n"
+              f"hello user - {g_current_user.user_name}\n"
+              "1. 회원 정보 변경\n"
+              "2. 가게 조회 (대기열 등록)\n"
+              "3. 내 대기열 조회\n"
+              "4. 리뷰 등록\n"
+              "5. 종료")
+        user_input = input("메뉴 선택: ")
+        if user_input == "1":
+            change_user()
+        elif user_input == "2":
+            find_restaurant()
+        elif user_input == "3":
+            check_waiting()
+        elif user_input == "4":
+            write_review()
+        elif user_input == "5":
+            print("Bye")
+            break
+        else:
+            print("Invalid Option!\n 1, 2, 3, 4 중 선택해주세요.")
 
 def owner_menu():
     """
@@ -482,15 +604,14 @@ def owner_menu():
         elif user_input == "3":
             manage_waiting()
         elif user_input == "4":
-            #view_review()
-            pass
+            view_review()
         elif user_input == "5":
             register_or_delete_restaurant()
         elif user_input == "6":
             print("Bye")
             break
         else:
-            print("Invalid Option! 1 ~ 6 중 선택해주세요.")
+            print("Invalid Option!\n 1 ~ 6 중 선택해주세요.")
 
 def admin_menu():
     """
