@@ -326,7 +326,6 @@ def check_waiting():
 
 
 def write_review():
-    # TODO
     global con
     cursor = con.cursor()
     # 현재 고객의 작성 가능한 리뷰 목록 가져오기
@@ -370,7 +369,7 @@ def write_review():
         cursor.execute("update reviews set review_rating = %s, review_comment = %s where review_id = %s",
                        (rating, comment, selected_review_id))
         # 해당 가게의 평균 평점 갱신
-        # todo 고려할 부분) 가게의 평균 평점 개신 시점 -> 리뷰 작성시? 가게 조회시?
+        # TODO 고려할 부분) 가게의 평균 평점 개신 시점 -> 리뷰 작성시? 가게 조회시?
         cursor.execute("update restaurants "
                        "set avg_rating = "
                             "round("
@@ -525,8 +524,26 @@ def manage_waiting():
         else:
             print("Invalid Option!\n 1, 2 중 선택해주세요.")
 
+
+def report_review(review_id):
+    global con
+    cursor = con.cursor()
+
+    # 신고 횟수를 조회
+    cursor.execute("select count(*) from reports where review_id = %s", (review_id,))
+    current_reports = cursor.fetchone()[0]
+
+    if current_reports:
+        return print("이미 신고된 리뷰입니다.")
+    else:
+        comment = input("상황을 설명해주세요 (15자 이상): ")
+        if len(comment) < 15:
+            return print("설명은 15자 이상이어야 합니다.")
+        # 리뷰 신고 쿼리
+        cursor.execute("insert into reports (review_id, description) values (%s, %s)", (review_id, comment))
+        con.commit()
+
 def view_review():
-    # TODO -> 신고 기능 추가
     global con
     cursor = con.cursor()
     print("내 가게 리뷰 관리 메뉴입니다.")
@@ -548,7 +565,30 @@ def view_review():
         return print("리뷰가 없습니다.")
 
     for review in reviews:
-        print(f"평점: {review[3]}, 내용: {review[4]}")
+        print(f"리뷰 ID: {review[0]}, 평점: {review[3]}, 내용: {review[4]}")
+
+    # 리뷰 신고 기능
+    review_id_to_report = input("신고할 리뷰의 ID를 입력하세요 (종료: 0): ")
+
+    if review_id_to_report == "0":
+        return print("리뷰 신고를 종료합니다.")
+
+    cursor.execute("select r.owner_id, re.restaurant_id "
+                   "from restaurants r "
+                   "join reviews re "
+                   "on r.restaurant_id = re.restaurant_id "
+                   "where re.review_id = %s", (review_id_to_report,))
+    choosen_review_to_report = cursor.fetchone()
+
+    # 선택된 신고 리뷰 유효성 검사
+    if choosen_review_to_report is None:
+        return print("존재하지 않는 리뷰입니다.")
+    elif choosen_review_to_report[0] != g_current_user.user_id:
+        return print("신고할 권한이 없는 리뷰입니다.")
+    elif choosen_review_to_report[1] != int(choosen_restaurant_id):
+        return print("현재 가게의 리뷰가 아닙니다.")
+
+    report_review(review_id_to_report)
 
 def user_menu():
     """
@@ -556,6 +596,7 @@ def user_menu():
     1. 회원 정보 변경 (계정, 암호 변경)
     2. 가게 조회 (기준에 따른 순위별 조회)
     3. 내 대기열 조회 (현재 참여중인 대기열 정보)
+    4. 리뷰 등록
     """
     while 1:
         print("----------------------------\n"
@@ -584,6 +625,11 @@ def user_menu():
 def owner_menu():
     """
     사장이 사용할 수 있는 메뉴 출력
+    1. 내 가게 조회
+    2. 내 가게 상태 변경 (오픈 및 마감)
+    3. 대기열 관리 (손님 입장)
+    4. 리뷰 조회 (악성 리뷰 신고)
+    5. 가게 등록 및 삭제
     """
     while True:
         print("----------------------------\n"
@@ -616,9 +662,8 @@ def owner_menu():
 def admin_menu():
     """
     관리자가 사용할 수 있는 메뉴 출력
-    :return:
     """
-    #TODO - 관리자의 메뉴 -> 악성 리뷰 삭제 / 고객 및 사장 임시정지
+    #TODO - 관리자의 메뉴 구현하기 -> 악성 리뷰 삭제 / 고객 및 사장 임시정지
     print("----------------------------\n"
           "관리자가 사용할 수 있는 메뉴입니다.\n"
           f"hello admin - {g_current_user.user_name}\n")
