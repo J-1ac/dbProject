@@ -659,14 +659,92 @@ def owner_menu():
         else:
             print("Invalid Option!\n 1 ~ 6 중 선택해주세요.")
 
+
+def examine_review():
+    global con
+    cursor = con.cursor()
+    print("검토할 리뷰 목록: \n")
+    cursor.execute("select r.report_id, r.review_id, r.description, re.user_id, re.review_rating, re.review_comment "
+                   "from reports r "
+                   "join reviews re on r.review_id = re.review_id "
+                   "order by r.report_id desc")
+    reviews = cursor.fetchall()
+
+    if not reviews:
+        return print("검토할 리뷰가 없습니다.")
+
+    for review in reviews:
+        print(f"신고 ID: {review[0]}, 리뷰 ID: {review[1]}, 신고 내용: {review[2]}\n"
+              f"리뷰 작성자: {review[3]}, 리뷰 평점: {review[4]}, 리뷰 내용: {review[5]}\n"
+              f"----------------------------------------------------------------------")
+
+    # 리뷰 신고 기능
+    review_id_to_report = input("검토할 리뷰의 신고 ID를 입력하세요 (종료: 0): ")
+
+    if review_id_to_report == "0":
+        return print("리뷰 검토가 종료됩니다.")
+
+    cursor.execute("select r.report_id, r.review_id, r.description, re.user_id, re.review_rating, re.review_comment "
+                   "from reports r "
+                   "join reviews re on r.review_id = re.review_id "
+                   "where r.report_id = %s", (review_id_to_report,))
+    reported_review = cursor.fetchone()
+
+    if not reported_review:
+        return print("존재하지 않는 리뷰 신고입니다.")
+
+    print(f"신고 ID: {reported_review[0]}, 리뷰 ID: {reported_review[1]}, 신고 내용: {reported_review[2]}\n"
+          f"리뷰 작성자: {reported_review[3]}, 리뷰 평점: {reported_review[4]}, 리뷰 내용: {reported_review[5]}")
+
+    decision = input("신고를 승인하시겠습니까? (승인: 1, 거부: 0): ")
+
+    if decision == "1":
+        # 승인된 신고에 대한 처리 로직
+        cursor.execute("delete from reviews where review_id = %s", (reported_review[1],))
+        cursor.execute("delete from reports where review_id = %s", (reported_review[1],))
+        con.commit()
+        print("신고가 승인되었습니다. 해당 리뷰가 삭제되었습니다.")
+    elif decision == "0":
+        cursor.execute("delete from reports where review_id = %s", (reported_review[1],))
+        con.commit()
+        print("신고를 거부하였습니다.")
+    else:
+        print("잘못된 선택입니다. 1 또는 0을 입력해주세요.")
+
+def supervise_user():
+    pass
+
+
+def supervise_owner():
+    pass
+
+
 def admin_menu():
     """
     관리자가 사용할 수 있는 메뉴 출력
     """
-    #TODO - 관리자의 메뉴 구현하기 -> 악성 리뷰 삭제 / 고객 및 사장 임시정지
-    print("----------------------------\n"
-          "관리자가 사용할 수 있는 메뉴입니다.\n"
-          f"hello admin - {g_current_user.user_name}\n")
+    #TODO - 관리자의 메뉴 구현하기 -> 고객 및 사장 임시정지
+    while True:
+        print("----------------------------\n"
+              "관리자가 사용할 수 있는 메뉴입니다.\n"
+              f"hello admin - {g_current_user.user_name}\n"
+              "1. 리뷰 검토\n"
+              "2. 고객 관리\n"
+              "3. 사장 관리\n"
+              "4. 종료\n")
+
+        user_input = input("메뉴 선택: ")
+        if user_input == "1":
+            examine_review()
+        elif user_input == "2":
+            supervise_user()
+        elif user_input == "3":
+            supervise_owner()
+        elif user_input == "4":
+            print("Bye")
+            break
+        else:
+            print("Invalid Option!\n 1, 2, 3, 4 중 선택해주세요.")
 
 if __name__ == "__main__":
     while 1:
