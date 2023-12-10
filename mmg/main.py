@@ -44,15 +44,24 @@ def sign_in():
     input_username = input("계정: ")
     input_password = input('암호: ')
 
-    # 사용자 계정과 암호로 조회
-    cursor.execute("select * from users where user_name = %s and user_pw = %s", (input_username, input_password))
-    result = cursor.fetchall()
-
-    if result:
+    try:
+        # 로그인 한 데이터베이스사용자로 connect 변경.
+        con = psycopg2.connect(
+            database="mmg",
+            user=input_username,
+            password=input_password,
+            host="localhost",
+            port="5432"
+        )
         print("로그인 성공!")
+        cursor.execute("select * from users where user_name = %s and user_pw = %s", (input_username, input_password))
+        result = cursor.fetchall()
+        if result[0][4]:
+            return print("차단된 사용자입니다.")
         g_current_user = User(result[0][0], result[0][1], result[0][2], result[0][3])
-    else:
-        print("로그인 실패. 계정 또는 암호를 확인하세요.")
+    except psycopg2.Error as e:
+        print("로그인 실패, 계정 혹은 암호를 확인해주세요.")
+        return
 
 def is_valid_password(password):
     """
@@ -63,6 +72,37 @@ def is_valid_password(password):
     """
     pattern = re.compile(r'^(?=.*[a-zA-Z\d@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$')
     return bool(re.match(pattern, password))
+
+
+def create_dbuser_and_grant(input_username, input_password, db_role):
+    global con
+    cursor = con.cursor()
+
+    # 데이터 베이스 사용자 CREATE
+    cursor.execute(f"CREATE USER {input_username} WITH PASSWORD '{input_password}'")
+
+    # 역할에 맞는 권한 GRANT
+    # todo - role에 따른 권한 생각하기.
+    if db_role == 'user':
+        cursor.execute(f"GRANT SELECT, UPDATE ON users TO {input_username}")
+        cursor.execute(f"GRANT SELECT, UPDATE ON restaurants TO {input_username}")
+        cursor.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON waitings TO {input_username}")
+        cursor.execute(f"GRANT SELECT, UPDATE ON reviews TO {input_username}")
+        cursor.execute(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {input_username}")
+    elif db_role == 'owner':
+        cursor.execute(f"GRANT SELECT, UPDATE ON users TO {input_username}")
+        cursor.execute(f"GRANT ALL PRIVILEGES ON restaurants TO {input_username}")
+        cursor.execute(f"GRANT SELECT, UPDATE, DELETE ON waitings TO {input_username}")
+        cursor.execute(f"GRANT SELECT, INSERT ON reviews TO {input_username}")
+        cursor.execute(f"GRANT SELECT, INSERT ON reports TO {input_username}")
+        cursor.execute(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {input_username}")
+    elif db_role == 'admin':
+        cursor.execute(f"GRANT ALL PRIVILEGES ON users TO {input_username}")
+        cursor.execute(f"GRANT SELECT, UPDATE, DELETE ON reports TO {input_username}")
+        cursor.execute(f"GRANT SELECT, DELETE ON reviews TO {input_username}")
+        cursor.execute(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {input_username}")
+
+    con.commit()
 
 def sign_up():
     """
@@ -111,6 +151,8 @@ def sign_up():
     db_role = role_mapping.get(input_role)
     cursor.execute("insert into users (user_name, user_pw, role) values (%s, %s, %s)", (input_username, input_password, db_role))
     con.commit()  # 변경사항 저장
+    # 데이터베이스 유저 생성
+    create_dbuser_and_grant(input_username, input_password, db_role)
     print("회원가입이 완료되었습니다.")
 
 
@@ -435,7 +477,6 @@ def delete_restaurant():
     else:
         print("해당 가게를 찾을 수 없거나 삭제 권한이 없습니다.")
 
-
 def register_or_delete_restaurant():
     while True:
         print("가게 등록 및 삭제 메뉴입니다.\n"
@@ -530,11 +571,16 @@ def report_review(review_id):
     cursor = con.cursor()
 
     # 신고 횟수를 조회
-    cursor.execute("select count(*) from reports where review_id = %s", (review_id,))
-    current_reports = cursor.fetchone()[0]
+    cursor.execute("select * from reports where review_id = %s", (review_id,))
+    current_reports = cursor.fetchone()
 
     if current_reports:
-        return print("이미 신고된 리뷰입니다.")
+        if current_reports[3] is None:
+            return print("처리중인 리뷰 신고입니다.")
+        elif not current_reports[3]:
+            return print("반려된 리뷰 신고입니다.")
+        else:
+            return print("승인된 리뷰 신고입니다.")
     else:
         comment = input("상황을 설명해주세요 (15자 이상): ")
         if len(comment) < 15:
@@ -590,6 +636,81 @@ def view_review():
 
     report_review(review_id_to_report)
 
+
+def examine_review():
+    global con
+    cursor = con.cursor()
+    print("검토할 리뷰 목록: \n")
+    cursor.execute("select r.report_id, r.review_id, r.description, re.user_id, re.review_rating, re.review_comment "
+                   "from reports r "
+                   "join reviews re on r.review_id = re.review_id "
+                   "where r.approved is null "
+                   "order by r.report_id desc")
+    reviews = cursor.fetchall()
+
+    if not reviews:
+        return print("검토할 리뷰가 없습니다.")
+
+    for review in reviews:
+        print(f"신고 ID: {review[0]}, 리뷰 ID: {review[1]}, 신고 내용: {review[2]}\n"
+              f"리뷰 작성자: {review[3]}, 리뷰 평점: {review[4]}, 리뷰 내용: {review[5]}\n"
+              f"----------------------------------------------------------------------")
+
+    # 리뷰 신고 기능
+    review_id_to_report = input("검토할 리뷰의 신고 ID를 입력하세요 (종료: 0): ")
+
+    if review_id_to_report == "0":
+        return print("리뷰 검토가 종료됩니다.")
+
+    cursor.execute("select r.report_id, r.review_id, r.description, re.user_id, re.review_rating, re.review_comment "
+                   "from reports r "
+                   "join reviews re on r.review_id = re.review_id "
+                   "where r.report_id = %s and r.approved is null", (review_id_to_report,))
+    reported_review = cursor.fetchone()
+
+    if not reported_review:
+        return print("존재하지 않는 리뷰 신고입니다.")
+
+    print(f"신고 ID: {reported_review[0]}, 리뷰 ID: {reported_review[1]}, 신고 내용: {reported_review[2]}\n"
+          f"리뷰 작성자: {reported_review[3]}, 리뷰 평점: {reported_review[4]}, 리뷰 내용: {reported_review[5]}")
+
+    decision = input("신고를 승인하시겠습니까? (승인: 1, 거부: 0): ")
+
+    if decision == "1":
+        # 승인된 신고에 대한 처리 로직
+        cursor.execute("delete from reviews where review_id = %s", (reported_review[1],))
+        cursor.execute("update reports set approved = true where review_id = %s", (reported_review[1],))
+        con.commit()
+        print("신고가 승인되었습니다. 해당 리뷰가 삭제되었습니다.")
+    elif decision == "0":
+        cursor.execute("update reports set approved = false where review_id = %s", (reported_review[1],))
+        con.commit()
+        print("신고를 거부하였습니다.")
+    else:
+        print("잘못된 선택입니다. 1 또는 0을 입력해주세요.")
+
+def block_user(user_id):
+    global con
+    cursor = con.cursor()
+
+    # 차단 상태를 true로 설정
+    cursor.execute("update users set blocked = true where user_id = %s", (user_id,))
+    con.commit()
+    print(f"사용자 {user_id}가 차단되었습니다.")
+
+def unblock_user(user_id):
+    global con
+    cursor = con.cursor()
+
+    # 차단 상태를 false로 설정
+    cursor.execute("update users set blocked = false where user_id = %s", (user_id,))
+    con.commit()
+    print(f"사용자 {user_id}가 차단 해제되었습니다.")
+
+def supervise_user():
+    # todo 사용자 차단 혹은 차단해제 구현
+    pass
+
 def user_menu():
     """
     고객이 사용할 수 있는 메뉴 출력
@@ -602,7 +723,7 @@ def user_menu():
         print("----------------------------\n"
               "고객이 사용할 수 있는 메뉴입니다.\n"
               f"hello user - {g_current_user.user_name}\n"
-              "1. 회원 정보 변경\n"
+              "1. 회원 정보 변경 (계정, 암호 변경)\n"
               "2. 가게 조회 (대기열 등록)\n"
               "3. 내 대기열 조회\n"
               "4. 리뷰 등록\n"
@@ -636,9 +757,9 @@ def owner_menu():
               "사장이 사용할 수 있는 메뉴입니다.\n"
               f"hello owner - {g_current_user.user_name}\n"
               "1. 내 가게 조회\n"
-              "2. 내 가게 상태 변경\n"
-              "3. 대기열 관리\n"
-              "4. 리뷰 조회\n"
+              "2. 내 가게 상태 변경 (오픈 및 마감)\n"
+              "3. 대기열 관리 (손님 입장)\n"
+              "4. 리뷰 조회 (악성 리뷰 신고)\n"
               "5. 가게 등록 및 삭제\n"
               "6. 종료\n")
 
@@ -659,66 +780,6 @@ def owner_menu():
         else:
             print("Invalid Option!\n 1 ~ 6 중 선택해주세요.")
 
-
-def examine_review():
-    global con
-    cursor = con.cursor()
-    print("검토할 리뷰 목록: \n")
-    cursor.execute("select r.report_id, r.review_id, r.description, re.user_id, re.review_rating, re.review_comment "
-                   "from reports r "
-                   "join reviews re on r.review_id = re.review_id "
-                   "order by r.report_id desc")
-    reviews = cursor.fetchall()
-
-    if not reviews:
-        return print("검토할 리뷰가 없습니다.")
-
-    for review in reviews:
-        print(f"신고 ID: {review[0]}, 리뷰 ID: {review[1]}, 신고 내용: {review[2]}\n"
-              f"리뷰 작성자: {review[3]}, 리뷰 평점: {review[4]}, 리뷰 내용: {review[5]}\n"
-              f"----------------------------------------------------------------------")
-
-    # 리뷰 신고 기능
-    review_id_to_report = input("검토할 리뷰의 신고 ID를 입력하세요 (종료: 0): ")
-
-    if review_id_to_report == "0":
-        return print("리뷰 검토가 종료됩니다.")
-
-    cursor.execute("select r.report_id, r.review_id, r.description, re.user_id, re.review_rating, re.review_comment "
-                   "from reports r "
-                   "join reviews re on r.review_id = re.review_id "
-                   "where r.report_id = %s", (review_id_to_report,))
-    reported_review = cursor.fetchone()
-
-    if not reported_review:
-        return print("존재하지 않는 리뷰 신고입니다.")
-
-    print(f"신고 ID: {reported_review[0]}, 리뷰 ID: {reported_review[1]}, 신고 내용: {reported_review[2]}\n"
-          f"리뷰 작성자: {reported_review[3]}, 리뷰 평점: {reported_review[4]}, 리뷰 내용: {reported_review[5]}")
-
-    decision = input("신고를 승인하시겠습니까? (승인: 1, 거부: 0): ")
-
-    if decision == "1":
-        # 승인된 신고에 대한 처리 로직
-        cursor.execute("delete from reviews where review_id = %s", (reported_review[1],))
-        cursor.execute("delete from reports where review_id = %s", (reported_review[1],))
-        con.commit()
-        print("신고가 승인되었습니다. 해당 리뷰가 삭제되었습니다.")
-    elif decision == "0":
-        cursor.execute("delete from reports where review_id = %s", (reported_review[1],))
-        con.commit()
-        print("신고를 거부하였습니다.")
-    else:
-        print("잘못된 선택입니다. 1 또는 0을 입력해주세요.")
-
-def supervise_user():
-    pass
-
-
-def supervise_owner():
-    pass
-
-
 def admin_menu():
     """
     관리자가 사용할 수 있는 메뉴 출력
@@ -729,9 +790,8 @@ def admin_menu():
               "관리자가 사용할 수 있는 메뉴입니다.\n"
               f"hello admin - {g_current_user.user_name}\n"
               "1. 리뷰 검토\n"
-              "2. 고객 관리\n"
-              "3. 사장 관리\n"
-              "4. 종료\n")
+              "2. 사용자 관리\n"
+              "3. 종료\n")
 
         user_input = input("메뉴 선택: ")
         if user_input == "1":
@@ -739,12 +799,10 @@ def admin_menu():
         elif user_input == "2":
             supervise_user()
         elif user_input == "3":
-            supervise_owner()
-        elif user_input == "4":
             print("Bye")
             break
         else:
-            print("Invalid Option!\n 1, 2, 3, 4 중 선택해주세요.")
+            print("Invalid Option!\n 1, 2, 3 중 선택해주세요.")
 
 if __name__ == "__main__":
     while 1:
