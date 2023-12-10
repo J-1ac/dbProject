@@ -689,27 +689,92 @@ def examine_review():
     else:
         print("잘못된 선택입니다. 1 또는 0을 입력해주세요.")
 
-def block_user(user_id):
+def view_blocked_users():
     global con
     cursor = con.cursor()
 
-    # 차단 상태를 true로 설정
+    cursor.execute("select * from users where blocked = true")
+    blocked_users = cursor.fetchall()
+    if blocked_users:
+        print("차단된 사용자 목록:")
+        for user in blocked_users:
+            print(f"사용자 ID: {user[0]}, 사용자명: {user[1]}")
+    else:
+        print("차단된 사용자가 없습니다.")
+        return -1
+    return 1
+
+
+def view_unblocked_users():
+    global con
+    cursor = con.cursor()
+
+    cursor.execute("select * from users where blocked = false")
+    blocked_users = cursor.fetchall()
+    if blocked_users:
+        print("사용자 목록:")
+        for user in blocked_users:
+            print(f"사용자 ID: {user[0]}, 사용자명: {user[1]}")
+    else:
+        print("사용자가 없습니다.")
+        return -1
+    return 1
+
+
+def block_user():
+    global con
+    cursor = con.cursor()
+
+    if view_unblocked_users() < 0 : return
+    user_id = input("차단할 사용자의 ID를 입력해주세요.")
+    # 입력한 사용자 ID에 대한 유효성 검사
+    cursor.execute("select * from users where user_id = %s", (user_id,))
+    existing_user = cursor.fetchone()
+    if not existing_user:
+        return print("해당 ID의 사용자가 존재하지 않습니다.")
+    elif existing_user[4]:
+        return print("해당 사용자는 이미 차단되어 있습니다.")
+
+    # 입력 받은 사용자 차단
     cursor.execute("update users set blocked = true where user_id = %s", (user_id,))
     con.commit()
     print(f"사용자 {user_id}가 차단되었습니다.")
 
-def unblock_user(user_id):
+def unblock_user():
     global con
     cursor = con.cursor()
+    if view_blocked_users() < 0 : return
+    user_id = input("차단 해제할 사용자의 ID를 입력해주세요.")
+    # 입력한 사용자 ID에 대한 유효성 검사
+    cursor.execute("select * from users where user_id = %s", (user_id,))
+    existing_user = cursor.fetchone()
+    if not existing_user:
+        return print("해당 ID의 사용자가 존재하지 않습니다.")
+    elif not existing_user[4]:
+        return print("해당 사용자는 차단되어 있지 않습니다.")
 
-    # 차단 상태를 false로 설정
+    # 입력 받은 사용자 차단 해제.
     cursor.execute("update users set blocked = false where user_id = %s", (user_id,))
     con.commit()
     print(f"사용자 {user_id}가 차단 해제되었습니다.")
 
+
 def supervise_user():
-    # todo 사용자 차단 혹은 차단해제 구현
-    pass
+    while True:
+        print("1. 사용자 차단")
+        print("2. 사용자 차단 해제")
+        print("3. 종료")
+
+        choice = input("원하는 작업을 선택하세요: ")
+        if choice == "1":
+            block_user()
+        elif choice == "2":
+            unblock_user()
+        elif choice == "3":
+            print("사용자 관리 메뉴를 종료합니다.")
+            break
+        else:
+            print("Invalid Option!\n 1 ~ 3 중 입력해주세요.")
 
 def user_menu():
     """
