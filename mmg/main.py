@@ -1,7 +1,6 @@
 import psycopg2
 import re
 
-# TODO -> 로그아웃 기능 추가?
 con = psycopg2.connect(
         database='mmg',
         user='sjlee',
@@ -9,6 +8,7 @@ con = psycopg2.connect(
         host='::1',
         port='5432'
     )
+con.autocommit = False
 
 class User:
     def __init__(self, user_id, user_name, user_pw, user_role):
@@ -53,11 +53,11 @@ def sign_in():
             host="localhost",
             port="5432"
         )
-        print("로그인 성공!")
         cursor.execute("select * from users where user_name = %s and user_pw = %s", (input_username, input_password))
         result = cursor.fetchall()
         if result[0][4]:
             return print("차단된 사용자입니다.")
+        print("로그인 성공!")
         g_current_user = User(result[0][0], result[0][1], result[0][2], result[0][3])
     except psycopg2.Error as e:
         print("로그인 실패, 계정 혹은 암호를 확인해주세요.")
@@ -82,7 +82,6 @@ def create_dbuser_and_grant(input_username, input_password, db_role):
     cursor.execute(f"CREATE USER {input_username} WITH PASSWORD '{input_password}'")
 
     # 역할에 맞는 권한 GRANT
-    # todo - role에 따른 권한 생각하기.
     if db_role == 'user':
         cursor.execute(f"GRANT SELECT, UPDATE ON users TO {input_username}")
         cursor.execute(f"GRANT SELECT, UPDATE ON restaurants TO {input_username}")
@@ -169,10 +168,9 @@ def check_user():
     print("현재 사용자 계정과 암호가 확인되었습니다.")
     return True
 
-def is_unique_user_name(cursor, new_user_name):
+def is_unique_user_name(new_user_name):
     """
         새로운 사용자 계정이 unique한지 확인하는 함수
-        :param cursor: 데이터베이스 커서
         :param new_user_name: 새로운 사용자 계정
         :return: unique하면 True, 중복이면 False
         """
@@ -182,75 +180,77 @@ def is_unique_user_name(cursor, new_user_name):
     existing_user = cursor.fetchone()
     return existing_user is None
 
-def change_name():
-    print("----계정 변경----")
-    global g_current_user
-    global con
-    cursor = con.cursor()
-
-    if not check_user():
-        return
-
-    while 1:
-        # 새로운 사용자 계정이 입력
-        new_user_name = input("새로운 사용자 ID: ")
-        # 새로운 사용자 계정이 현재 사용자 ID와 동일한지 확인
-        if new_user_name == g_current_user.user_name:
-            print("현재 사용자 계정과 동일합니다. 다시 입력해주세요.")
-        elif not is_unique_user_name(cursor, new_user_name):
-            print("이미 존재하는 계정입니다. 다른 계정을 입력해주세요.")
-        else:
-            # 동일하지 않은 경우 데이터베이스 업데이트
-            cursor.execute("update users set user_name = %s where user_id = %s", (new_user_name, g_current_user.user_id))
-            print("사용자 계정이 성공적으로 변경되었습니다.")
-            # 변경사항 저장
-            con.commit()
-            g_current_user.user_name = new_user_name
-            return
-
-
-def change_pw():
-    print("----암호 변경----")
-    global g_current_user
-    global con
-    cursor = con.cursor()
-
-    if not check_user():
-        return
-
-    while 1:
-        # 새로운 암호 입력
-        new_user_pw = input("새로운 암호: ")
-        # 유효성 검사: 암호는 8자 이상 영문 혹은 숫자, 특수기호이어야 하며, 공백을 포함해서는 안됨
-        if new_user_pw == g_current_user.user_pw:
-            print("현재 사용자 암호와 동일합니다. 다시 입력해주세요.")
-        elif not is_valid_password(new_user_pw):
-            print("암호는 8자 이상 영문 혹은 숫자, 특수기호이어야 하며, 공백을 포함해서는 안됩니다. 다시 입력하세요.")
-        else:
-            # 동일하지 않은 경우 데이터베이스 업데이트
-            cursor.execute("update users set user_pw = %s where user_id = %s", (new_user_pw, g_current_user.user_id))
-            print("사용자 암호가 성공적으로 변경되었습니다.")
-            # 변경사항 저장
-            con.commit()
-            g_current_user.user_pw = new_user_pw
-            break
-
-def change_user():
-    while 1:
-        print("회원 정보 변경 메뉴입니다.\n"
-              "1. 계정 변경\n"
-              "2. 암호 변경\n"
-              "3. 종료\n")
-        user_input = input("메뉴 선택: ")
-        if user_input == "1":
-            change_name()
-        elif user_input == "2":
-            change_pw()
-        elif user_input == "3":
-            print("회원 정보 변경을 종료합니다.")
-            break
-        else:
-            print("Invalid Option!\n 1, 2, 3 중 선택해주세요.")
+# todo change_user -> 데이터 베이스 사용자도 id, pw 변경되어야함.
+# def change_name():
+#     print("----계정 변경----")
+#     global g_current_user
+#     global con
+#     cursor = con.cursor()
+#
+#     if not check_user():
+#         return
+#
+#     while 1:
+#         # 새로운 사용자 계정이 입력
+#         new_user_name = input("새로운 사용자 ID: ")
+#         # 새로운 사용자 계정이 현재 사용자 ID와 동일한지 확인
+#         if new_user_name == g_current_user.user_name:
+#             print("현재 사용자 계정과 동일합니다. 다시 입력해주세요.")
+#         elif not is_unique_user_name(new_user_name):
+#             print("이미 존재하는 계정입니다. 다른 계정을 입력해주세요.")
+#         else:
+#             # 동일하지 않은 경우 데이터베이스 업데이트
+#             cursor.execute("update users set user_name = %s where user_id = %s", (new_user_name, g_current_user.user_id))
+#             cursor.execute(f"ALTER USER {g_current_user.user_name} RENAME TO {new_user_name}")
+#             print("사용자 계정이 성공적으로 변경되었습니다.")
+#             # 변경사항 저장
+#             con.commit()
+#             g_current_user.user_name = new_user_name
+#             return
+#
+#
+# def change_pw():
+#     print("----암호 변경----")
+#     global g_current_user
+#     global con
+#     cursor = con.cursor()
+#
+#     if not check_user():
+#         return
+#
+#     while 1:
+#         # 새로운 암호 입력
+#         new_user_pw = input("새로운 암호: ")
+#         # 유효성 검사: 암호는 8자 이상 영문 혹은 숫자, 특수기호이어야 하며, 공백을 포함해서는 안됨
+#         if new_user_pw == g_current_user.user_pw:
+#             print("현재 사용자 암호와 동일합니다. 다시 입력해주세요.")
+#         elif not is_valid_password(new_user_pw):
+#             print("암호는 8자 이상 영문 혹은 숫자, 특수기호이어야 하며, 공백을 포함해서는 안됩니다. 다시 입력하세요.")
+#         else:
+#             # 동일하지 않은 경우 데이터베이스 업데이트
+#             cursor.execute("update users set user_pw = %s where user_id = %s", (new_user_pw, g_current_user.user_id))
+#             print("사용자 암호가 성공적으로 변경되었습니다.")
+#             # 변경사항 저장
+#             con.commit()
+#             g_current_user.user_pw = new_user_pw
+#             break
+#
+# def change_user():
+#     while 1:
+#         print("회원 정보 변경 메뉴입니다.\n"
+#               "1. 계정 변경\n"
+#               "2. 암호 변경\n"
+#               "3. 종료\n")
+#         user_input = input("메뉴 선택: ")
+#         if user_input == "1":
+#             change_name()
+#         elif user_input == "2":
+#             change_pw()
+#         elif user_input == "3":
+#             print("회원 정보 변경을 종료합니다.")
+#             break
+#         else:
+#             print("Invalid Option!\n 1, 2, 3 중 선택해주세요.")
 
 
 def find_restaurant():
@@ -320,7 +320,6 @@ def find_restaurant():
             print("대기열 참가를 거부하셨습니다.")
     else:
         print("유효하지 않은 가게 번호입니다.")
-
 
 def leave_waiting_queue(restaurant_id, priority):
     global con
@@ -411,7 +410,6 @@ def write_review():
         cursor.execute("update reviews set review_rating = %s, review_comment = %s where review_id = %s",
                        (rating, comment, selected_review_id))
         # 해당 가게의 평균 평점 갱신
-        # TODO 고려할 부분) 가게의 평균 평점 개신 시점 -> 리뷰 작성시? 가게 조회시?
         cursor.execute("update restaurants "
                        "set avg_rating = "
                             "round("
@@ -547,19 +545,19 @@ def manage_waiting():
             return print("대기열이 비어있습니다.")
 
         for waiting in waiting_list:
-            print(f"손님 ID: {waiting[1]}, 우선순위: {waiting[2]}")
-        print("1: 손님 입장\n"
+            print(f"고객 ID: {waiting[1]}, 우선순위: {waiting[2]}")
+        print("1: 고객 입장\n"
               "2: 종료\n")
         user_input = input("메뉴 선택: ")
         if user_input == "1":
-            # 입장한 손님을 reviews에 추가하는 쿼리
+            # 입장한 고객을 reviews에 추가하는 쿼리
             cursor.execute("insert into reviews (user_id, restaurant_id) values (%s, %s)", (waiting_list[0][1], choosen_restaurant_id))
-            # 입장한 손님 삭제 쿼리
+            # 입장한 고객 삭제 쿼리
             cursor.execute("delete from waitings where restaurant_id = %s and priority = 1", (choosen_restaurant_id,))
             # 나머지 대기열 내 고객의 priority를 1씩 감소.
             cursor.execute("update waitings set priority = priority - 1 where restaurant_id = %s", (choosen_restaurant_id,))
             con.commit()
-            print("손님 입장 처리를 완료하였습니다.")
+            print("고객 입장 처리를 완료하였습니다.")
         elif user_input == "2":
             return print("내 가게 대기열 관리 기능을 종료합니다.")
         else:
@@ -709,7 +707,7 @@ def view_unblocked_users():
     global con
     cursor = con.cursor()
 
-    cursor.execute("select * from users where blocked = false")
+    cursor.execute("select * from users where blocked = false and (role = 'user' or role = 'owner')")
     blocked_users = cursor.fetchall()
     if blocked_users:
         print("사용자 목록:")
@@ -728,7 +726,7 @@ def block_user():
     if view_unblocked_users() < 0 : return
     user_id = input("차단할 사용자의 ID를 입력해주세요.")
     # 입력한 사용자 ID에 대한 유효성 검사
-    cursor.execute("select * from users where user_id = %s", (user_id,))
+    cursor.execute("select * from users where user_id = %s and (role = 'user' or role = 'owner')", (user_id,))
     existing_user = cursor.fetchone()
     if not existing_user:
         return print("해당 ID의 사용자가 존재하지 않습니다.")
@@ -779,7 +777,7 @@ def supervise_user():
 def user_menu():
     """
     고객이 사용할 수 있는 메뉴 출력
-    1. 회원 정보 변경 (계정, 암호 변경)
+    1. 회원 정보 변경 (계정, 암호 변경) - 추후 구현
     2. 가게 조회 (기준에 따른 순위별 조회)
     3. 내 대기열 조회 (현재 참여중인 대기열 정보)
     4. 리뷰 등록
@@ -788,42 +786,39 @@ def user_menu():
         print("----------------------------\n"
               "고객이 사용할 수 있는 메뉴입니다.\n"
               f"hello user - {g_current_user.user_name}\n"
-              "1. 회원 정보 변경 (계정, 암호 변경)\n"
-              "2. 가게 조회 (대기열 등록)\n"
-              "3. 내 대기열 조회\n"
-              "4. 리뷰 등록\n"
-              "5. 종료")
+              "1. 가게 조회 (대기열 등록)\n"
+              "2. 내 대기열 조회\n"
+              "3. 리뷰 등록\n"
+              "4. 종료")
         user_input = input("메뉴 선택: ")
         if user_input == "1":
-            change_user()
-        elif user_input == "2":
             find_restaurant()
-        elif user_input == "3":
+        elif user_input == "2":
             check_waiting()
-        elif user_input == "4":
+        elif user_input == "3":
             write_review()
-        elif user_input == "5":
+        elif user_input == "4":
             print("Bye")
             break
         else:
-            print("Invalid Option!\n 1, 2, 3, 4 중 선택해주세요.")
+            print("Invalid Option!\n 1 ~ 4 중 선택해주세요.")
 
 def owner_menu():
     """
     사장이 사용할 수 있는 메뉴 출력
     1. 내 가게 조회
     2. 내 가게 상태 변경 (오픈 및 마감)
-    3. 대기열 관리 (손님 입장)
+    3. 대기열 관리 (고객 입장)
     4. 리뷰 조회 (악성 리뷰 신고)
     5. 가게 등록 및 삭제
     """
     while True:
         print("----------------------------\n"
               "사장이 사용할 수 있는 메뉴입니다.\n"
-              f"hello owner - {g_current_user.user_name}\n"
+              f"hello owner - {g_current_user.user_name}\n"\
               "1. 내 가게 조회\n"
               "2. 내 가게 상태 변경 (오픈 및 마감)\n"
-              "3. 대기열 관리 (손님 입장)\n"
+              "3. 대기열 관리 (고객 입장)\n"
               "4. 리뷰 조회 (악성 리뷰 신고)\n"
               "5. 가게 등록 및 삭제\n"
               "6. 종료\n")
@@ -849,7 +844,6 @@ def admin_menu():
     """
     관리자가 사용할 수 있는 메뉴 출력
     """
-    #TODO - 관리자의 메뉴 구현하기 -> 고객 및 사장 임시정지
     while True:
         print("----------------------------\n"
               "관리자가 사용할 수 있는 메뉴입니다.\n"
@@ -870,6 +864,7 @@ def admin_menu():
             print("Invalid Option!\n 1, 2, 3 중 선택해주세요.")
 
 if __name__ == "__main__":
+    quit = False
     while 1:
         m = print_welcome_menu()
         if m == "1":
@@ -879,13 +874,15 @@ if __name__ == "__main__":
             sign_up()
         elif m == "3":
             print("Bye")
+            quit = True
             break
         else:
             print("Invalid Option!")
 
-    if g_current_user.user_role == "user":
-        user_menu()
-    elif g_current_user.user_role == "owner":
-        owner_menu()
-    elif g_current_user.user_role == "admin":
-        admin_menu()
+    if not quit:
+        if g_current_user.user_role == "user":
+            user_menu()
+        elif g_current_user.user_role == "owner":
+            owner_menu()
+        elif g_current_user.user_role == "admin":
+            admin_menu()
